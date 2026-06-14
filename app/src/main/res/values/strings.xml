@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">WhatsApp Helper</string>
+    <string name="accessibility_description">Helper for WhatsApp automation</string>
+</resources>
