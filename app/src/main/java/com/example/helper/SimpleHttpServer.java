@@ -1,6 +1,7 @@
 package com.example.helper;
 
 import fi.iki.elonen.NanoHTTPD;
+import org.json.JSONArray;
 import java.util.Map;
 
 public class SimpleHttpServer extends NanoHTTPD {
@@ -34,6 +35,16 @@ public class SimpleHttpServer extends NanoHTTPD {
             } else if ("/back".equals(uri)) {
                 svc.goBack();
                 return newFixedLengthResponse("OK");
+            } else if ("/clickchat".equals(uri)) {
+                String name = params.get("name");
+                if (name != null && svc.clickChatByName(name)) return newFixedLengthResponse("OK");
+                return newFixedLengthResponse("FAIL");
+            } else if ("/chats".equals(uri)) {
+                return newFixedLengthResponse(svc.getUnreadChats());
+            } else if ("/uimap".equals(uri)) {
+                return newFixedLengthResponse(svc.getUIMap());
+            } else if ("/contacts".equals(uri)) {
+                return newFixedLengthResponse(new JSONArray(svc.extractContacts()).toString());
             } else {
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Unknown command");
             }

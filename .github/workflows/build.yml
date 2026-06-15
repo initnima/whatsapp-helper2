@@ -1,5 +1,4 @@
 name: Build APK
-
 on: [push]
 
 env:
@@ -29,7 +28,7 @@ jobs:
           accept-android-sdk-licenses: true
 
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
