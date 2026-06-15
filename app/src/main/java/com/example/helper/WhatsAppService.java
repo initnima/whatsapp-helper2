@@ -193,19 +193,58 @@ public class WhatsAppService extends AccessibilityService {
 
     // ---------- Improved message reader ----------
     public String readLastMessage() {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return null;
+    AccessibilityNodeInfo root = getRootInActiveWindow();
+    if (root == null) return null;
 
-        // Standard message_text
-        List<AccessibilityNodeInfo> msgs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/message_text");
-        if (!msgs.isEmpty()) {
-            // Return the last one (highest y position)
-            AccessibilityNodeInfo last = msgs.get(msgs.size() - 1);
-            CharSequence txt = last.getText();
-            return txt != null ? txt.toString().trim() : null;
-        }
-        return null;
+    // 1) Try the known message_text ID
+    List<AccessibilityNodeInfo> msgs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/message_text");
+    if (!msgs.isEmpty()) {
+        // Return the last one (newest)
+        AccessibilityNodeInfo last = msgs.get(msgs.size() - 1);
+        CharSequence txt = last.getText();
+        if (txt != null && txt.length() > 0) return txt.toString().trim();
     }
+
+    // 2) Scan every node for resource‑id containing "message", pick newest by Y position
+    List<AccessibilityNodeInfo> all = new ArrayList<>();
+    collectAllNodes(root, all);
+    AccessibilityNodeInfo best = null;
+    int maxY = -1;
+    for (AccessibilityNodeInfo node : all) {
+        String rid = node.getViewIdResourceName();
+        if (rid != null && rid.contains("message")) {
+            CharSequence t = node.getText();
+            if (t != null && t.length() > 0) {
+                android.graphics.Rect rect = new android.graphics.Rect();
+                node.getBoundsInScreen(rect);
+                if (rect.bottom > maxY) {
+                    maxY = rect.bottom;
+                    best = node;
+                }
+            }
+        }
+    }
+    if (best != null) {
+        CharSequence t = best.getText();
+        return t != null ? t.toString().trim() : null;
+    }
+
+    // 3) Last resort: return the longest text on screen that looks like a message
+    String longest = null;
+    for (AccessibilityNodeInfo node : all) {
+        CharSequence t = node.getText();
+        if (t != null && t.length() > 1) {
+            String s = t.toString().trim();
+            // Exclude timestamps and typing indicators
+            if (!s.matches("\\d{1,2}:\\d{2}") && !s.equalsIgnoreCase("typing…")) {
+                if (longest == null || s.length() > longest.length()) {
+                    longest = s;
+                }
+            }
+        }
+    }
+    return longest;
+}
 
     public void openApp(String pkg) {
         try { startActivity(getPackageManager().getLaunchIntentForPackage(pkg)); } catch (Exception ignored) {}
