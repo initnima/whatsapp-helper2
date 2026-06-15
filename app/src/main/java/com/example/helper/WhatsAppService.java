@@ -236,6 +236,44 @@ public class WhatsAppService extends AccessibilityService {
         return arr.toString();
     }
 
+    // ---------- NEW: Click by content description ----------
+    public boolean clickByContentDesc(String desc) {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return false;
+        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(desc);
+        if (nodes.isEmpty()) {
+            nodes = findNodesByContentDescription(root, desc);
+        }
+        for (AccessibilityNodeInfo node : nodes) {
+            if (node.isClickable()) {
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<AccessibilityNodeInfo> findNodesByContentDescription(AccessibilityNodeInfo root, String desc) {
+        List<AccessibilityNodeInfo> result = new ArrayList<>();
+        if (root == null) return result;
+        if (desc.equals(root.getContentDescription())) result.add(root);
+        for (int i = 0; i < root.getChildCount(); i++) {
+            result.addAll(findNodesByContentDescription(root.getChild(i), desc));
+        }
+        return result;
+    }
+
+    // ---------- NEW: Get bounds of an element by resource-id ----------
+    public String getBoundsById(String id) {
+        AccessibilityNodeInfo node = findElementById(id);
+        if (node != null) {
+            android.graphics.Rect rect = new android.graphics.Rect();
+            node.getBoundsInScreen(rect);
+            return rect.left + "," + rect.top + "," + rect.right + "," + rect.bottom;
+        }
+        return null;
+    }
+
     // ---------- Helper methods ----------
     private void collectAllNodes(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
         if (node == null) return;

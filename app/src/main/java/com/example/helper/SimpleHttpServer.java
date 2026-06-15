@@ -42,6 +42,13 @@ public class SimpleHttpServer extends NanoHTTPD {
                 return newFixedLengthResponse(svc.getAllChats());
             } else if ("/contacts".equals(uri)) {
                 return newFixedLengthResponse(new JSONArray(svc.extractContacts()).toString());
+            } else if ("/clickdesc".equals(uri)) {
+                String desc = params.get("desc");
+                return newFixedLengthResponse(desc != null && svc.clickByContentDesc(desc) ? "OK" : "FAIL");
+            } else if ("/bounds".equals(uri)) {
+                String id = params.get("id");
+                String bounds = svc.getBoundsById(id);
+                return newFixedLengthResponse(bounds != null ? bounds : "null");
             } else {
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Unknown command");
             }
