@@ -40,7 +40,7 @@ public class WhatsAppService extends AccessibilityService {
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
     @Override public void onInterrupt() {}
 
-    // ---------- Basic helpers ----------
+    // ---------- Basic actions ----------
     public AccessibilityNodeInfo findElementById(String id) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return null;
@@ -80,67 +80,131 @@ public class WhatsAppService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount(); i++) collectByClass(node.getChild(i), className, out);
     }
 
-    /** Opens a chat by contact name (exact match). */
+    /** Opens a chat by contact name – only matches on the actual contact name element. */
     public boolean clickChatByName(String name) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return false;
-        List<AccessibilityNodeInfo> chats = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
-        for (AccessibilityNodeInfo chat : chats) {
-            if (chat.getText() != null && chat.getText().toString().equals(name)) {
-                chat.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        List<AccessibilityNodeInfo> names = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
+        for (AccessibilityNodeInfo node : names) {
+            if (name.equals(node.getText() != null ? node.getText().toString() : "")) {
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
                 return true;
             }
         }
         return false;
     }
 
-    // ---------- Improved message reader (always returns something) ----------
+    // ---------- Accurate unread detection (only returns actual contact names) ----------
+    public String getUnreadChats() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return "[]";
+
+        // Find all chat rows (any clickable container that has a contact name)
+        List<AccessibilityNodeInfo> rows = new ArrayList<>();
+        findChatRows(root, rows);
+
+        JSONArray result = new JSONArray();
+        Set<String> usedNames = new HashSet<>();
+
+        for (AccessibilityNodeInfo row : rows) {
+            // Get the contact name (exact element)
+            String name = getContactNameFromRow(row);
+            if (name == null || name.isEmpty()) continue;
+
+            // Get unread count (badge)
+            int count = getUnreadCountFromRow(row);
+            if (count > 0 && !usedNames.contains(name)) {
+                usedNames.add(name);
+                try {
+                    JSONObject obj = new JSONObject();
+                    obj.put("name", name);
+                    obj.put("count", count);
+                    result.put(obj);
+                } catch (Exception ignored) {}
+            }
+        }
+        return result.toString();
+    }
+
+    private void findChatRows(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
+        if (node == null) return;
+        // A chat row is clickable and contains a contact name element
+        if (node.isClickable() && hasContactNameElement(node)) {
+            out.add(node);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            findChatRows(node.getChild(i), out);
+        }
+    }
+
+    private boolean hasContactNameElement(AccessibilityNodeInfo node) {
+        List<AccessibilityNodeInfo> names = node.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
+        return !names.isEmpty();
+    }
+
+    private String getContactNameFromRow(AccessibilityNodeInfo row) {
+        List<AccessibilityNodeInfo> names = row.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
+        if (!names.isEmpty()) {
+            CharSequence txt = names.get(0).getText();
+            return txt != null ? txt.toString().trim() : null;
+        }
+        return null;
+    }
+
+    private int getUnreadCountFromRow(AccessibilityNodeInfo row) {
+        // Try known badge IDs
+        List<AccessibilityNodeInfo> badges = row.findAccessibilityNodeInfosByViewId("com.whatsapp:id/unread_count");
+        if (badges.isEmpty()) badges = row.findAccessibilityNodeInfosByViewId("com.whatsapp:id/unread_indicator");
+        if (!badges.isEmpty()) {
+            CharSequence t = badges.get(0).getText();
+            if (t != null) {
+                try { return Integer.parseInt(t.toString().trim()); } catch (NumberFormatException ignored) {}
+            }
+        }
+        // Also check contentDescription for "unread"
+        List<AccessibilityNodeInfo> all = new ArrayList<>();
+        collectAllNodes(row, all);
+        for (AccessibilityNodeInfo n : all) {
+            CharSequence desc = n.getContentDescription();
+            if (desc != null && desc.toString().toLowerCase().contains("unread")) {
+                String d = desc.toString();
+                String[] parts = d.split("\\s+");
+                for (String part : parts) {
+                    if (part.matches("\\d+")) {
+                        return Integer.parseInt(part);
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+
+    // ---------- Open first chat ----------
+    public boolean openFirstChat() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return false;
+        List<AccessibilityNodeInfo> names = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
+        if (!names.isEmpty()) {
+            names.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            return true;
+        }
+        return false;
+    }
+
+    // ---------- Improved message reader ----------
     public String readLastMessage() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return null;
 
-        // 1) Standard message_text ID
+        // Standard message_text
         List<AccessibilityNodeInfo> msgs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/message_text");
         if (!msgs.isEmpty()) {
-            CharSequence txt = msgs.get(msgs.size() - 1).getText();
-            if (txt != null && txt.length() > 0) return txt.toString().trim();
+            // Return the last one (highest y position)
+            AccessibilityNodeInfo last = msgs.get(msgs.size() - 1);
+            CharSequence txt = last.getText();
+            return txt != null ? txt.toString().trim() : null;
         }
-
-        // 2) Scan all nodes for resource‑id containing "message", pick the one with largest Y position
-        List<AccessibilityNodeInfo> all = new ArrayList<>();
-        collectAllNodes(root, all);
-        AccessibilityNodeInfo best = null;
-        int maxY = -1;
-        for (AccessibilityNodeInfo node : all) {
-            String rid = node.getViewIdResourceName();
-            if (rid != null && rid.contains("message")) {
-                CharSequence t = node.getText();
-                if (t != null && t.length() > 0) {
-                    android.graphics.Rect rect = new android.graphics.Rect();
-                    node.getBoundsInScreen(rect);
-                    if (rect.bottom > maxY) {
-                        maxY = rect.bottom;
-                        best = node;
-                    }
-                }
-            }
-        }
-        if (best != null) return best.getText().toString().trim();
-
-        // 3) Last resort: return the longest non‑timestamp text on screen
-        String longest = null;
-        for (AccessibilityNodeInfo node : all) {
-            CharSequence t = node.getText();
-            if (t != null && t.length() > 1) {
-                String s = t.toString().trim();
-                if (!s.matches("\\d{1,2}:\\d{2}") && !s.equalsIgnoreCase("typing…")) {
-                    if (longest == null || s.length() > longest.length()) {
-                        longest = s;
-                    }
-                }
-            }
-        }
-        return longest;
+        return null;
     }
 
     public void openApp(String pkg) {
@@ -149,102 +213,11 @@ public class WhatsAppService extends AccessibilityService {
 
     public void goBack() { performGlobalAction(GLOBAL_ACTION_BACK); }
 
-    // ---------- Unread detection (already working) ----------
-    public String getUnreadChats() {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return "[]";
-
-        List<AccessibilityNodeInfo> allNodes = new ArrayList<>();
-        collectAllNodes(root, allNodes);
-
-        // Find badges (text or contentDescription)
-        List<AccessibilityNodeInfo> badges = new ArrayList<>();
-        for (AccessibilityNodeInfo node : allNodes) {
-            CharSequence txt = node.getText();
-            if (txt != null && txt.toString().trim().matches("\\d+")) {
-                badges.add(node);
-                continue;
-            }
-            CharSequence desc = node.getContentDescription();
-            if (desc != null && desc.toString().toLowerCase().contains("unread")) {
-                badges.add(node);
-            }
-        }
-
-        JSONArray result = new JSONArray();
-        Set<String> used = new HashSet<>();
-
-        for (AccessibilityNodeInfo badge : badges) {
-            int count = 0;
-            CharSequence txt = badge.getText();
-            if (txt != null && txt.toString().trim().matches("\\d+")) {
-                count = Integer.parseInt(txt.toString().trim());
-            } else if (badge.getContentDescription() != null) {
-                String d = badge.getContentDescription().toString();
-                String[] parts = d.split("\\s+");
-                for (String part : parts) {
-                    if (part.matches("\\d+")) { count = Integer.parseInt(part); break; }
-                }
-            }
-            if (count == 0) continue;
-
-            AccessibilityNodeInfo parent = badge.getParent();
-            while (parent != null) {
-                String name = findContactNameInRow(parent);
-                if (name != null && !used.contains(name)) {
-                    used.add(name);
-                    try { result.put(new JSONObject().put("name", name).put("count", count)); } catch (Exception ignored) {}
-                    break;
-                }
-                parent = parent.getParent();
-            }
-        }
-        return result.toString();
-    }
-
-    // ---------- Open first chat ----------
-    public boolean openFirstChat() {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return false;
-
-        List<AccessibilityNodeInfo> names = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
-        if (!names.isEmpty()) {
-            names.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
-            return true;
-        }
-
-        List<AccessibilityNodeInfo> clickables = new ArrayList<>();
-        collectAllNodes(root, clickables);
-        for (AccessibilityNodeInfo node : clickables) {
-            if (node.isClickable() && findContactNameInRow(node) != null) {
-                node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                return true;
-            }
-        }
-        return false;
-    }
-
     // ---------- Helper methods ----------
     private void collectAllNodes(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
         if (node == null) return;
         out.add(node);
         for (int i = 0; i < node.getChildCount(); i++) collectAllNodes(node.getChild(i), out);
-    }
-
-    private String findContactNameInRow(AccessibilityNodeInfo row) {
-        List<AccessibilityNodeInfo> children = new ArrayList<>();
-        collectAllNodes(row, children);
-        String best = null;
-        for (AccessibilityNodeInfo child : children) {
-            CharSequence txt = child.getText();
-            if (txt != null) {
-                String s = txt.toString().trim();
-                if (s.length() > 1 && !s.matches("\\d+")) {
-                    if (best == null || s.length() > best.length()) best = s;
-                }
-            }
-        }
-        return best;
     }
 
     // ---------- Contact extraction ----------
