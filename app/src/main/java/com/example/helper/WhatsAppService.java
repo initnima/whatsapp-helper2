@@ -157,16 +157,31 @@ public class WhatsAppService extends AccessibilityService {
     AccessibilityNodeInfo root = getRootInActiveWindow();
     if (root == null) return "[]";
 
-    // collect all visible nodes
     List<AccessibilityNodeInfo> allNodes = new ArrayList<>();
     collectAllNodes(root, allNodes);
 
-    // find all numeric badges (potential unread counts)
     List<AccessibilityNodeInfo> badges = new ArrayList<>();
     for (AccessibilityNodeInfo node : allNodes) {
-        CharSequence t = node.getText();
-        if (t != null && t.toString().trim().matches("\\d+")) {
+        // Check text first
+        CharSequence txt = node.getText();
+        if (txt != null && txt.toString().trim().matches("\\d+")) {
             badges.add(node);
+            continue;
+        }
+        // Check content description (e.g. "3 unread messages")
+        CharSequence desc = node.getContentDescription();
+        if (desc != null) {
+            String d = desc.toString().toLowerCase();
+            if (d.contains("unread")) {
+                // try to extract the first number
+                String[] parts = d.split("\\s+");
+                for (String part : parts) {
+                    if (part.matches("\\d+")) {
+                        badges.add(node);
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -174,10 +189,23 @@ public class WhatsAppService extends AccessibilityService {
     Set<String> used = new HashSet<>();
 
     for (AccessibilityNodeInfo badge : badges) {
-        int count = Integer.parseInt(badge.getText().toString().trim());
+        int count = 0;
+        CharSequence txt = badge.getText();
+        if (txt != null && txt.toString().trim().matches("\\d+")) {
+            count = Integer.parseInt(txt.toString().trim());
+        } else if (badge.getContentDescription() != null) {
+            String d = badge.getContentDescription().toString();
+            String[] parts = d.split("\\s+");
+            for (String part : parts) {
+                if (part.matches("\\d+")) {
+                    count = Integer.parseInt(part);
+                    break;
+                }
+            }
+        }
         if (count == 0) continue;
 
-        // walk up to find a clickable row that contains a contact name
+        // Walk up to find a clickable row containing a contact name
         AccessibilityNodeInfo parent = badge.getParent();
         while (parent != null) {
             String name = findContactNameInRow(parent);
