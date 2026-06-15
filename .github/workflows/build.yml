@@ -20,7 +20,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: 8.5    # use a stable, proven version (not 9.x)
+          gradle-version: 8.5
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -28,11 +28,11 @@ jobs:
           packages: 'platforms;android-34 build-tools;34.0.0'
           accept-android-sdk-licenses: true
 
-      - name: Build release APK
-        run: gradle assembleRelease --stacktrace
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
