@@ -38,6 +38,8 @@ public class SimpleHttpServer extends NanoHTTPD {
                 return newFixedLengthResponse(svc.getUnreadChats());
             } else if ("/openfirstchat".equals(uri)) {
                 return newFixedLengthResponse(svc.openFirstChat() ? "OK" : "FAIL");
+            } else if ("/listchats".equals(uri)) {
+                return newFixedLengthResponse(svc.getAllChats());
             } else if ("/contacts".equals(uri)) {
                 return newFixedLengthResponse(new JSONArray(svc.extractContacts()).toString());
             } else {
