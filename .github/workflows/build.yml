@@ -19,6 +19,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.5    # use a stable, proven version (not 9.x)
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -27,7 +29,7 @@ jobs:
           accept-android-sdk-licenses: true
 
       - name: Build release APK
-        run: gradle assembleRelease
+        run: gradle assembleRelease --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
