@@ -51,6 +51,10 @@ public class SimpleHttpServer extends NanoHTTPD {
                 return newFixedLengthResponse(bounds != null ? bounds : "null");
             } else if ("/focusinput".equals(uri)) {
                 return newFixedLengthResponse(svc.focusInputField() ? "OK" : "FAIL");
+            } else if ("/state".equals(uri)) {
+                return newFixedLengthResponse(svc.getCurrentState());
+            } else if ("/dump".equals(uri)) {
+                return newFixedLengthResponse(svc.dumpUI());
             } else {
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Unknown command");
             }

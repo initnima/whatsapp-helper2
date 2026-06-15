@@ -94,19 +94,17 @@ public class WhatsAppService extends AccessibilityService {
         return false;
     }
 
-    // ---------- Robust message reader (always returns the last incoming message) ----------
+    // ---------- Robust message reader ----------
     public String readLastMessage() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return null;
 
-        // 1) Standard message_text ID
         List<AccessibilityNodeInfo> msgs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/message_text");
         if (!msgs.isEmpty()) {
             CharSequence txt = msgs.get(msgs.size() - 1).getText();
             if (txt != null && txt.length() > 0) return txt.toString().trim();
         }
 
-        // 2) Scan all nodes for resource‑id containing "message", pick the one with largest Y position
         List<AccessibilityNodeInfo> all = new ArrayList<>();
         collectAllNodes(root, all);
         AccessibilityNodeInfo best = null;
@@ -127,16 +125,13 @@ public class WhatsAppService extends AccessibilityService {
         }
         if (best != null) return best.getText().toString().trim();
 
-        // 3) Last resort: return the longest non‑timestamp text on screen
         String longest = null;
         for (AccessibilityNodeInfo node : all) {
             CharSequence t = node.getText();
             if (t != null && t.length() > 1) {
                 String s = t.toString().trim();
                 if (!s.matches("\\d{1,2}:\\d{2}") && !s.equalsIgnoreCase("typing…")) {
-                    if (longest == null || s.length() > longest.length()) {
-                        longest = s;
-                    }
+                    if (longest == null || s.length() > longest.length()) longest = s;
                 }
             }
         }
@@ -149,7 +144,7 @@ public class WhatsAppService extends AccessibilityService {
 
     public void goBack() { performGlobalAction(GLOBAL_ACTION_BACK); }
 
-    // ---------- Unread detection (only real contact names) ----------
+    // ---------- Unread detection ----------
     public String getUnreadChats() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return "[]";
@@ -157,18 +152,12 @@ public class WhatsAppService extends AccessibilityService {
         List<AccessibilityNodeInfo> allNodes = new ArrayList<>();
         collectAllNodes(root, allNodes);
 
-        // Find badges (text or contentDescription)
         List<AccessibilityNodeInfo> badges = new ArrayList<>();
         for (AccessibilityNodeInfo node : allNodes) {
             CharSequence txt = node.getText();
-            if (txt != null && txt.toString().trim().matches("\\d+")) {
-                badges.add(node);
-                continue;
-            }
+            if (txt != null && txt.toString().trim().matches("\\d+")) { badges.add(node); continue; }
             CharSequence desc = node.getContentDescription();
-            if (desc != null && desc.toString().toLowerCase().contains("unread")) {
-                badges.add(node);
-            }
+            if (desc != null && desc.toString().toLowerCase().contains("unread")) badges.add(node);
         }
 
         JSONArray result = new JSONArray();
@@ -182,9 +171,7 @@ public class WhatsAppService extends AccessibilityService {
             } else if (badge.getContentDescription() != null) {
                 String d = badge.getContentDescription().toString();
                 String[] parts = d.split("\\s+");
-                for (String part : parts) {
-                    if (part.matches("\\d+")) { count = Integer.parseInt(part); break; }
-                }
+                for (String part : parts) if (part.matches("\\d+")) { count = Integer.parseInt(part); break; }
             }
             if (count == 0) continue;
 
@@ -202,24 +189,17 @@ public class WhatsAppService extends AccessibilityService {
         return result.toString();
     }
 
-    // ---------- Open first chat ----------
     public boolean openFirstChat() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return false;
-
         List<AccessibilityNodeInfo> names = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
-        if (!names.isEmpty()) {
-            names.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
-            return true;
-        }
+        if (!names.isEmpty()) { names.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK); return true; }
         return false;
     }
 
-    // ---------- Get all chat names (contacts & groups) ----------
     public String getAllChats() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return "[]";
-
         List<AccessibilityNodeInfo> names = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
         JSONArray arr = new JSONArray();
         Set<String> used = new HashSet<>();
@@ -227,55 +207,50 @@ public class WhatsAppService extends AccessibilityService {
             CharSequence txt = n.getText();
             if (txt != null) {
                 String name = txt.toString().trim();
-                if (!name.isEmpty() && !used.contains(name)) {
-                    used.add(name);
-                    arr.put(name);
-                }
+                if (!name.isEmpty() && !used.contains(name)) { used.add(name); arr.put(name); }
             }
         }
         return arr.toString();
     }
 
-    /** Reliable input focus – tries up to 5 times, uses both FOCUS and CLICK */
-public boolean focusInputField() {
-    for (int attempt = 0; attempt < 5; attempt++) {
+    // ---------- UI state ----------
+    public String getCurrentState() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) {
-            sleep(300);
-            continue;
-        }
+        if (root == null) return "unknown";
         List<AccessibilityNodeInfo> inputs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry");
-        if (inputs.isEmpty()) inputs = findAllEditTexts(root);
-        if (!inputs.isEmpty()) {
-            AccessibilityNodeInfo input = inputs.get(0);
-            input.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-            sleep(200);
-            input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-            return true;
-        }
-        sleep(500);
+        if (!inputs.isEmpty()) return "chat_open";
+        List<AccessibilityNodeInfo> contacts = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
+        if (!contacts.isEmpty()) return "chat_list";
+        return "other";
     }
-    return false;
-}
 
-// Helper to sleep without try/catch everywhere
-private void sleep(long ms) {
-    try { Thread.sleep(ms); } catch (Exception ignored) {}
-}
+    // ---------- Focus input (robust) ----------
+    public boolean focusInputField() {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root == null) { sleep(300); continue; }
+            List<AccessibilityNodeInfo> inputs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry");
+            if (inputs.isEmpty()) inputs = findAllEditTexts(root);
+            if (!inputs.isEmpty()) {
+                AccessibilityNodeInfo input = inputs.get(0);
+                input.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                sleep(200);
+                input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                return true;
+            }
+            sleep(500);
+        }
+        return false;
+    }
 
-    // ---------- NEW: Click by content description (e.g., "Send") ----------
+    // ---------- Click by content description ----------
     public boolean clickByContentDesc(String desc) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return false;
         List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(desc);
-        if (nodes.isEmpty()) {
-            nodes = findNodesByContentDescription(root, desc);
-        }
+        if (nodes.isEmpty()) nodes = findNodesByContentDescription(root, desc);
         for (AccessibilityNodeInfo node : nodes) {
-            if (node.isClickable()) {
-                node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                return true;
-            }
+            if (node.isClickable()) { node.performAction(AccessibilityNodeInfo.ACTION_CLICK); return true; }
         }
         return false;
     }
@@ -284,13 +259,12 @@ private void sleep(long ms) {
         List<AccessibilityNodeInfo> result = new ArrayList<>();
         if (root == null) return result;
         if (desc.equals(root.getContentDescription())) result.add(root);
-        for (int i = 0; i < root.getChildCount(); i++) {
+        for (int i = 0; i < root.getChildCount(); i++)
             result.addAll(findNodesByContentDescription(root.getChild(i), desc));
-        }
         return result;
     }
 
-    // ---------- NEW: Get bounds of an element by resource-id ----------
+    // ---------- Get bounds ----------
     public String getBoundsById(String id) {
         AccessibilityNodeInfo node = findElementById(id);
         if (node != null) {
@@ -301,7 +275,32 @@ private void sleep(long ms) {
         return null;
     }
 
-    // ---------- Helper methods ----------
+    // ---------- Dump all visible UI elements ----------
+    public String dumpUI() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return "[]";
+        List<AccessibilityNodeInfo> all = new ArrayList<>();
+        collectAllNodes(root, all);
+        JSONArray arr = new JSONArray();
+        for (AccessibilityNodeInfo node : all) {
+            try {
+                JSONObject obj = new JSONObject();
+                obj.put("resource-id", node.getViewIdResourceName());
+                obj.put("class", node.getClassName() != null ? node.getClassName().toString() : "");
+                obj.put("text", node.getText() != null ? node.getText().toString() : "");
+                obj.put("content-desc", node.getContentDescription() != null ? node.getContentDescription().toString() : "");
+                obj.put("clickable", node.isClickable());
+                android.graphics.Rect rect = new android.graphics.Rect();
+                node.getBoundsInScreen(rect);
+                obj.put("bounds", rect.left + "," + rect.top + "," + rect.right + "," + rect.bottom);
+                arr.put(obj);
+            } catch (Exception ignored) {}
+        }
+        return arr.toString();
+    }
+
+    private void sleep(long ms) { try { Thread.sleep(ms); } catch (Exception ignored) {} }
+
     private void collectAllNodes(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
         if (node == null) return;
         out.add(node);
