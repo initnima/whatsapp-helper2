@@ -9,7 +9,6 @@ import org.json.JSONObject;
 import java.io.*;
 import java.net.ServerSocket;
 import java.util.*;
-
 public class WhatsAppService extends AccessibilityService {
     private static WhatsAppService instance;
     private SimpleHttpServer httpServer;
@@ -131,74 +130,98 @@ public class WhatsAppService extends AccessibilityService {
 
     /** Opens the very first chat in the list. */
     public boolean openFirstChat() {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return false;
-        List<AccessibilityNodeInfo> names = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
-        if (names.isEmpty()) {
-            List<AccessibilityNodeInfo> clickables = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/contact_row_container");
-            if (clickables.isEmpty()) return false;
-            clickables.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
-            return true;
-        }
+    AccessibilityNodeInfo root = getRootInActiveWindow();
+    if (root == null) return false;
+
+    // Try the known resource ID first
+    List<AccessibilityNodeInfo> names = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
+    if (!names.isEmpty()) {
         names.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
         return true;
     }
 
+    // Fallback: find any clickable item that contains a contact name
+    List<AccessibilityNodeInfo> clickables = new ArrayList<>();
+    collectAllNodes(root, clickables);
+    for (AccessibilityNodeInfo node : clickables) {
+        if (node.isClickable() && findContactNameInRow(node) != null) {
+            node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            return true;
+        }
+    }
+    return false;
+}
+
     // ---------- Intelligent unread detection ----------
     public String getUnreadChats() {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return "[]";
-        List<AccessibilityNodeInfo> allNodes = new ArrayList<>();
-        collectAllNodes(root, allNodes);
+    AccessibilityNodeInfo root = getRootInActiveWindow();
+    if (root == null) return "[]";
 
-        List<AccessibilityNodeInfo> badges = new ArrayList<>();
-        for (AccessibilityNodeInfo node : allNodes) {
-            CharSequence txt = node.getText();
-            if (txt != null && txt.toString().trim().matches("\\d+")) badges.add(node);
-        }
+    // collect all visible nodes
+    List<AccessibilityNodeInfo> allNodes = new ArrayList<>();
+    collectAllNodes(root, allNodes);
 
-        JSONArray result = new JSONArray();
-        Set<String> used = new HashSet<>();
-        for (AccessibilityNodeInfo badge : badges) {
-            int count = Integer.parseInt(badge.getText().toString().trim());
-            if (count == 0) continue;
-            AccessibilityNodeInfo parent = badge.getParent();
-            while (parent != null && !isChatRow(parent)) parent = parent.getParent();
-            if (parent == null) continue;
-            String name = findContactNameInRow(parent);
-            if (name == null || used.contains(name)) continue;
-            used.add(name);
-            try { result.put(new JSONObject().put("name", name).put("count", count)); } catch (Exception ignored) {}
+    // find all numeric badges (potential unread counts)
+    List<AccessibilityNodeInfo> badges = new ArrayList<>();
+    for (AccessibilityNodeInfo node : allNodes) {
+        CharSequence t = node.getText();
+        if (t != null && t.toString().trim().matches("\\d+")) {
+            badges.add(node);
         }
-        return result.toString();
     }
+
+    JSONArray result = new JSONArray();
+    Set<String> used = new HashSet<>();
+
+    for (AccessibilityNodeInfo badge : badges) {
+        int count = Integer.parseInt(badge.getText().toString().trim());
+        if (count == 0) continue;
+
+        // walk up to find a clickable row that contains a contact name
+        AccessibilityNodeInfo parent = badge.getParent();
+        while (parent != null) {
+            String name = findContactNameInRow(parent);
+            if (name != null && !used.contains(name)) {
+                used.add(name);
+                try {
+                    JSONObject obj = new JSONObject();
+                    obj.put("name", name);
+                    obj.put("count", count);
+                    result.put(obj);
+                } catch (Exception ignored) {}
+                break;
+            }
+            parent = parent.getParent();
+        }
+    }
+    return result.toString();
+}
 
     private void collectAllNodes(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
-        if (node == null) return;
-        out.add(node);
-        for (int i = 0; i < node.getChildCount(); i++) collectAllNodes(node.getChild(i), out);
+    if (node == null) return;
+    out.add(node);
+    for (int i = 0; i < node.getChildCount(); i++) {
+        collectAllNodes(node.getChild(i), out);
     }
+}
 
-    private boolean isChatRow(AccessibilityNodeInfo node) {
-        if (!node.isClickable()) return false;
-        return findContactNameInRow(node) != null;
-    }
-
-    private String findContactNameInRow(AccessibilityNodeInfo row) {
-        List<AccessibilityNodeInfo> children = new ArrayList<>();
-        collectAllNodes(row, children);
-        String best = null;
-        for (AccessibilityNodeInfo child : children) {
-            CharSequence txt = child.getText();
-            if (txt != null) {
-                String s = txt.toString().trim();
-                if (s.length() > 1 && !s.matches("\\d+")) {
-                    if (best == null || s.length() > best.length()) best = s;
+private String findContactNameInRow(AccessibilityNodeInfo row) {
+    List<AccessibilityNodeInfo> children = new ArrayList<>();
+    collectAllNodes(row, children);
+    String best = null;
+    for (AccessibilityNodeInfo child : children) {
+        CharSequence txt = child.getText();
+        if (txt != null) {
+            String s = txt.toString().trim();
+            if (s.length() > 1 && !s.matches("\\d+")) {
+                if (best == null || s.length() > best.length()) {
+                    best = s;
                 }
             }
         }
-        return best;
     }
+    return best;
+}
 
     // ---------- Contact extraction (unchanged) ----------
     public List<String> extractContacts() {
