@@ -5,9 +5,7 @@ import org.json.JSONArray;
 import java.util.Map;
 
 public class SimpleHttpServer extends NanoHTTPD {
-    public SimpleHttpServer(int port) {
-        super(port);
-    }
+    public SimpleHttpServer(int port) { super(port); }
 
     @Override
     public Response serve(IHTTPSession session) {
@@ -17,14 +15,13 @@ public class SimpleHttpServer extends NanoHTTPD {
         if (svc == null) return newFixedLengthResponse("Service not running");
 
         try {
-            if ("/click".equals(uri)) {
+            if ("/ping".equals(uri)) return newFixedLengthResponse("OK");
+            else if ("/click".equals(uri)) {
                 String id = params.get("id");
-                if (id != null && svc.clickById(id)) return newFixedLengthResponse("OK");
-                return newFixedLengthResponse("FAIL");
+                return newFixedLengthResponse(id != null && svc.clickById(id) ? "OK" : "FAIL");
             } else if ("/type".equals(uri)) {
                 String text = params.get("text");
-                if (text != null && svc.typeText(text)) return newFixedLengthResponse("OK");
-                return newFixedLengthResponse("FAIL");
+                return newFixedLengthResponse(text != null && svc.typeText(text) ? "OK" : "FAIL");
             } else if ("/read".equals(uri)) {
                 String msg = svc.readLastMessage();
                 return newFixedLengthResponse(msg != null ? msg : "");
@@ -33,16 +30,14 @@ public class SimpleHttpServer extends NanoHTTPD {
                 svc.openApp(pkg != null ? pkg : "com.whatsapp");
                 return newFixedLengthResponse("OK");
             } else if ("/back".equals(uri)) {
-                svc.goBack();
-                return newFixedLengthResponse("OK");
+                svc.goBack(); return newFixedLengthResponse("OK");
             } else if ("/clickchat".equals(uri)) {
                 String name = params.get("name");
-                if (name != null && svc.clickChatByName(name)) return newFixedLengthResponse("OK");
-                return newFixedLengthResponse("FAIL");
+                return newFixedLengthResponse(name != null && svc.clickChatByName(name) ? "OK" : "FAIL");
             } else if ("/chats".equals(uri)) {
                 return newFixedLengthResponse(svc.getUnreadChats());
-            } else if ("/uimap".equals(uri)) {
-                return newFixedLengthResponse(svc.getUIMap());
+            } else if ("/openfirstchat".equals(uri)) {
+                return newFixedLengthResponse(svc.openFirstChat() ? "OK" : "FAIL");
             } else if ("/contacts".equals(uri)) {
                 return newFixedLengthResponse(new JSONArray(svc.extractContacts()).toString());
             } else {

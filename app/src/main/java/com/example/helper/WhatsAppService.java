@@ -22,7 +22,6 @@ public class WhatsAppService extends AccessibilityService {
         httpServer = new SimpleHttpServer(port);
         try {
             httpServer.start();
-            // ذخیره پورت در فایل برای اسکریپت پایتون
             try (FileWriter fw = new FileWriter("/sdcard/whatsapp_helper_port.txt")) {
                 fw.write(String.valueOf(port));
             } catch (IOException ignored) {}
@@ -31,28 +30,17 @@ public class WhatsAppService extends AccessibilityService {
 
     private int findAvailablePort() {
         for (int port : new int[]{8080, 8081, 8082}) {
-            try {
-                ServerSocket ss = new ServerSocket(port);
-                ss.close();
-                return port;
-            } catch (IOException ignored) {}
+            try { ServerSocket ss = new ServerSocket(port); ss.close(); return port; } catch (IOException ignored) {}
         }
-        return 8080; // fallback
+        return 8080;
     }
 
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        if (httpServer != null) httpServer.stop();
-        instance = null;
-    }
-
+    @Override public void onDestroy() { super.onDestroy(); if (httpServer != null) httpServer.stop(); instance = null; }
     public static WhatsAppService getInstance() { return instance; }
-
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
     @Override public void onInterrupt() {}
 
-    // ---------- Basic helpers ----------
+    // ---------- Basic actions ----------
     public AccessibilityNodeInfo findElementById(String id) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return null;
@@ -62,10 +50,7 @@ public class WhatsAppService extends AccessibilityService {
 
     public boolean clickById(String id) {
         AccessibilityNodeInfo node = findElementById(id);
-        if (node != null) {
-            node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-            return true;
-        }
+        if (node != null) { node.performAction(AccessibilityNodeInfo.ACTION_CLICK); return true; }
         return false;
     }
 
@@ -99,112 +84,110 @@ public class WhatsAppService extends AccessibilityService {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return null;
         List<AccessibilityNodeInfo> msgs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/message_text");
-        if (msgs.isEmpty()) return null;
-        AccessibilityNodeInfo last = msgs.get(msgs.size() - 1);
-        CharSequence txt = last.getText();
-        return txt != null ? txt.toString() : null;
-    }
-
-    public boolean clickChatByName(String name) {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return false;
-        List<AccessibilityNodeInfo> chats = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
-        for (AccessibilityNodeInfo chat : chats) {
-            if (chat.getText() != null && chat.getText().toString().equals(name)) {
-                chat.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                return true;
-            }
+        if (!msgs.isEmpty()) {
+            CharSequence txt = msgs.get(msgs.size() - 1).getText();
+            if (txt != null) return txt.toString().trim();
         }
-        return false;
-    }
-
-    public void openApp(String pkg) {
-        try {
-            startActivity(getPackageManager().getLaunchIntentForPackage(pkg));
-        } catch (Exception ignored) {}
-    }
-
-    public void goBack() {
-        performGlobalAction(GLOBAL_ACTION_BACK);
-    }
-
-    // ---------- Unread chats (JSON) ----------
-    public String getUnreadChats() {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return "[]";
-        List<AccessibilityNodeInfo> rows = new ArrayList<>();
-        rows.addAll(root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/contact_row_container"));
-        if (rows.isEmpty()) rows.addAll(root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversation_row"));
-        if (rows.isEmpty()) {
-            collectChatRows(root, rows);
-        }
-
-        JSONArray json = new JSONArray();
-        for (AccessibilityNodeInfo row : rows) {
-            int count = 0;
-            List<AccessibilityNodeInfo> badges = row.findAccessibilityNodeInfosByViewId("com.whatsapp:id/unread_count");
-            if (badges.isEmpty()) badges = row.findAccessibilityNodeInfosByViewId("com.whatsapp:id/unread_indicator");
-            if (!badges.isEmpty()) {
-                try { count = Integer.parseInt(badges.get(0).getText().toString().trim()); } catch (Exception ignored) {}
-            }
-            if (count > 0) {
-                String name = "";
-                try {
-                    List<AccessibilityNodeInfo> names = row.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
-                    if (!names.isEmpty()) name = names.get(0).getText().toString();
-                } catch (Exception ignored) {}
-                if (!name.isEmpty()) {
-                    try {
-                        JSONObject obj = new JSONObject();
-                        obj.put("name", name);
-                        obj.put("count", count);
-                        json.put(obj);
-                    } catch (Exception ignored) {}
+        // Fallback: scan all nodes for message_text, pick the last one by position
+        List<AccessibilityNodeInfo> all = new ArrayList<>();
+        collectAllNodes(root, all);
+        String last = null;
+        int maxY = -1;
+        for (AccessibilityNodeInfo node : all) {
+            if (node.getViewIdResourceName() != null && node.getViewIdResourceName().contains("message_text")) {
+                CharSequence t = node.getText();
+                if (t != null && t.length() > 0) {
+                    android.graphics.Rect rect = new android.graphics.Rect();
+                    node.getBoundsInScreen(rect);
+                    if (rect.bottom > maxY) {
+                        maxY = rect.bottom;
+                        last = t.toString().trim();
+                    }
                 }
             }
         }
-        return json.toString();
+        return last;
     }
 
-    private void collectChatRows(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
-        if (node == null) return;
-        if (node.isClickable() && node.getChildCount() > 0) {
-            List<AccessibilityNodeInfo> names = node.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
-            if (!names.isEmpty()) out.add(node);
-        }
-        for (int i = 0; i < node.getChildCount(); i++) collectChatRows(node.getChild(i), out);
+    public void openApp(String pkg) {
+        try { startActivity(getPackageManager().getLaunchIntentForPackage(pkg)); } catch (Exception ignored) {}
     }
 
-    // ---------- Smart UI mapping ----------
-    public String getUIMap() {
+    public void goBack() { performGlobalAction(GLOBAL_ACTION_BACK); }
+
+    // ---------- Open first chat ----------
+    public boolean openFirstChat() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return "{}";
-        Map<String, String> map = new HashMap<>();
-        findSendButton(root, map);
-        findInputField(root, map);
-        return new JSONObject(map).toString();
-    }
-
-    private void findSendButton(AccessibilityNodeInfo node, Map<String, String> map) {
-        if (node == null) return;
-        if (("android.widget.ImageButton".equals(node.getClassName()) || "android.widget.Button".equals(node.getClassName())) &&
-            node.getContentDescription() != null && node.getContentDescription().toString().toLowerCase().contains("send")) {
-            String id = node.getViewIdResourceName();
-            if (id != null && !id.isEmpty()) map.put("send", id);
+        if (root == null) return false;
+        List<AccessibilityNodeInfo> names = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
+        if (names.isEmpty()) {
+            // try to find any clickable item that looks like a chat row
+            List<AccessibilityNodeInfo> clickables = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/contact_row_container");
+            if (clickables.isEmpty()) return false;
+            clickables.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            return true;
         }
-        for (int i = 0; i < node.getChildCount(); i++) findSendButton(node.getChild(i), map);
+        names.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        return true;
     }
 
-    private void findInputField(AccessibilityNodeInfo node, Map<String, String> map) {
-        if (node == null) return;
-        if ("android.widget.EditText".equals(node.getClassName())) {
-            String id = node.getViewIdResourceName();
-            if (id != null && !id.isEmpty()) map.put("input", id);
+    // ---------- Intelligent unread detection ----------
+    public String getUnreadChats() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return "[]";
+        List<AccessibilityNodeInfo> allNodes = new ArrayList<>();
+        collectAllNodes(root, allNodes);
+
+        List<AccessibilityNodeInfo> badges = new ArrayList<>();
+        for (AccessibilityNodeInfo node : allNodes) {
+            CharSequence txt = node.getText();
+            if (txt != null && txt.toString().trim().matches("\\d+")) badges.add(node);
         }
-        for (int i = 0; i < node.getChildCount(); i++) findInputField(node.getChild(i), map);
+
+        JSONArray result = new JSONArray();
+        Set<String> used = new HashSet<>();
+        for (AccessibilityNodeInfo badge : badges) {
+            int count = Integer.parseInt(badge.getText().toString().trim());
+            if (count == 0) continue;
+            AccessibilityNodeInfo parent = badge.getParent();
+            while (parent != null && !isChatRow(parent)) parent = parent.getParent();
+            if (parent == null) continue;
+            String name = findContactNameInRow(parent);
+            if (name == null || used.contains(name)) continue;
+            used.add(name);
+            try { result.put(new JSONObject().put("name", name).put("count", count)); } catch (Exception ignored) {}
+        }
+        return result.toString();
     }
 
-    // ---------- Contact extraction ----------
+    private void collectAllNodes(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
+        if (node == null) return;
+        out.add(node);
+        for (int i = 0; i < node.getChildCount(); i++) collectAllNodes(node.getChild(i), out);
+    }
+
+    private boolean isChatRow(AccessibilityNodeInfo node) {
+        if (!node.isClickable()) return false;
+        return findContactNameInRow(node) != null;
+    }
+
+    private String findContactNameInRow(AccessibilityNodeInfo row) {
+        List<AccessibilityNodeInfo> children = new ArrayList<>();
+        collectAllNodes(row, children);
+        String best = null;
+        for (AccessibilityNodeInfo child : children) {
+            CharSequence txt = child.getText();
+            if (txt != null) {
+                String s = txt.toString().trim();
+                if (s.length() > 1 && !s.matches("\\d+")) {
+                    if (best == null || s.length() > best.length()) best = s;
+                }
+            }
+        }
+        return best;
+    }
+
+    // ---------- Contact extraction (as before) ----------
     public List<String> extractContacts() {
         List<String> contacts = new ArrayList<>();
         Set<String> seen = new HashSet<>();
@@ -221,10 +204,7 @@ public class WhatsAppService extends AccessibilityService {
                 CharSequence txt = n.getText();
                 if (txt != null) {
                     String s = txt.toString().trim();
-                    if (!s.isEmpty() && !seen.contains(s)) {
-                        seen.add(s);
-                        contacts.add(s);
-                    }
+                    if (!s.isEmpty() && !seen.contains(s)) { seen.add(s); contacts.add(s); }
                 }
             }
             root.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
