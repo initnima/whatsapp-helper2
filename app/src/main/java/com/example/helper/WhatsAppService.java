@@ -236,18 +236,32 @@ public class WhatsAppService extends AccessibilityService {
         return arr.toString();
     }
 
-    // ---------- NEW: Reliable input focus ----------
-    public boolean focusInputField() {
+    /** Reliable input focus – tries up to 5 times, uses both FOCUS and CLICK */
+public boolean focusInputField() {
+    for (int attempt = 0; attempt < 5; attempt++) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return false;
+        if (root == null) {
+            sleep(300);
+            continue;
+        }
         List<AccessibilityNodeInfo> inputs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry");
         if (inputs.isEmpty()) inputs = findAllEditTexts(root);
-        if (inputs.isEmpty()) return false;
-        AccessibilityNodeInfo input = inputs.get(0);
-        input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-        input.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-        return true;
+        if (!inputs.isEmpty()) {
+            AccessibilityNodeInfo input = inputs.get(0);
+            input.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            sleep(200);
+            input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+            return true;
+        }
+        sleep(500);
     }
+    return false;
+}
+
+// Helper to sleep without try/catch everywhere
+private void sleep(long ms) {
+    try { Thread.sleep(ms); } catch (Exception ignored) {}
+}
 
     // ---------- NEW: Click by content description (e.g., "Send") ----------
     public boolean clickByContentDesc(String desc) {
