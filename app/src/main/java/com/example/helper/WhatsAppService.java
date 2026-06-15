@@ -80,6 +80,20 @@ public class WhatsAppService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount(); i++) collectByClass(node.getChild(i), className, out);
     }
 
+    /** Opens a chat by contact name (exact match). */
+    public boolean clickChatByName(String name) {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return false;
+        List<AccessibilityNodeInfo> chats = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
+        for (AccessibilityNodeInfo chat : chats) {
+            if (chat.getText() != null && chat.getText().toString().equals(name)) {
+                chat.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                return true;
+            }
+        }
+        return false;
+    }
+
     public String readLastMessage() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return null;
@@ -115,13 +129,12 @@ public class WhatsAppService extends AccessibilityService {
 
     public void goBack() { performGlobalAction(GLOBAL_ACTION_BACK); }
 
-    // ---------- Open first chat ----------
+    /** Opens the very first chat in the list. */
     public boolean openFirstChat() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return false;
         List<AccessibilityNodeInfo> names = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversations_row_contact_name");
         if (names.isEmpty()) {
-            // try to find any clickable item that looks like a chat row
             List<AccessibilityNodeInfo> clickables = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/contact_row_container");
             if (clickables.isEmpty()) return false;
             clickables.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
@@ -187,7 +200,7 @@ public class WhatsAppService extends AccessibilityService {
         return best;
     }
 
-    // ---------- Contact extraction (as before) ----------
+    // ---------- Contact extraction (unchanged) ----------
     public List<String> extractContacts() {
         List<String> contacts = new ArrayList<>();
         Set<String> seen = new HashSet<>();
