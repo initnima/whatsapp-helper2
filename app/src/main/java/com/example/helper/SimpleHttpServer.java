@@ -49,6 +49,8 @@ public class SimpleHttpServer extends NanoHTTPD {
                 String id = params.get("id");
                 String bounds = svc.getBoundsById(id);
                 return newFixedLengthResponse(bounds != null ? bounds : "null");
+            } else if ("/focusinput".equals(uri)) {
+                return newFixedLengthResponse(svc.focusInputField() ? "OK" : "FAIL");
             } else {
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Unknown command");
             }

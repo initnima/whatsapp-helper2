@@ -94,7 +94,7 @@ public class WhatsAppService extends AccessibilityService {
         return false;
     }
 
-    // ---------- Improved message reader (always returns something) ----------
+    // ---------- Robust message reader (always returns the last incoming message) ----------
     public String readLastMessage() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return null;
@@ -149,7 +149,7 @@ public class WhatsAppService extends AccessibilityService {
 
     public void goBack() { performGlobalAction(GLOBAL_ACTION_BACK); }
 
-    // ---------- Intelligent unread detection (only returns real contact names) ----------
+    // ---------- Unread detection (only real contact names) ----------
     public String getUnreadChats() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return "[]";
@@ -236,7 +236,20 @@ public class WhatsAppService extends AccessibilityService {
         return arr.toString();
     }
 
-    // ---------- NEW: Click by content description ----------
+    // ---------- NEW: Reliable input focus ----------
+    public boolean focusInputField() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return false;
+        List<AccessibilityNodeInfo> inputs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry");
+        if (inputs.isEmpty()) inputs = findAllEditTexts(root);
+        if (inputs.isEmpty()) return false;
+        AccessibilityNodeInfo input = inputs.get(0);
+        input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        input.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        return true;
+    }
+
+    // ---------- NEW: Click by content description (e.g., "Send") ----------
     public boolean clickByContentDesc(String desc) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return false;
