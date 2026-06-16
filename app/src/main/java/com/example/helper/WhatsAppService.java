@@ -94,51 +94,61 @@ public class WhatsAppService extends AccessibilityService {
     }
 
     // ---------- Robust message reader (3 fallbacks) ----------
-    public String readLastMessage() {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return null;
+    // Aggressive message reader – always returns the last visible message
+public String readLastMessage() {
+    AccessibilityNodeInfo root = getRootInActiveWindow();
+    if (root == null) return null;
 
-        // 1) Standard ID
-        List<AccessibilityNodeInfo> msgs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/message_text");
-        if (!msgs.isEmpty()) {
-            CharSequence txt = msgs.get(msgs.size() - 1).getText();
-            if (txt != null && txt.length() > 0) return txt.toString().trim();
-        }
-
-        // 2) Scan for resource-id containing "message", pick newest by Y position
-        List<AccessibilityNodeInfo> all = new ArrayList<>();
-        collectAllNodes(root, all);
-        AccessibilityNodeInfo best = null;
-        int maxY = -1;
-        for (AccessibilityNodeInfo node : all) {
-            String rid = node.getViewIdResourceName();
-            if (rid != null && rid.contains("message")) {
-                CharSequence t = node.getText();
-                if (t != null && t.length() > 0) {
-                    android.graphics.Rect rect = new android.graphics.Rect();
-                    node.getBoundsInScreen(rect);
-                    if (rect.bottom > maxY) {
-                        maxY = rect.bottom;
-                        best = node;
-                    }
-                }
-            }
-        }
-        if (best != null) return best.getText().toString().trim();
-
-        // 3) Longest visible text (excluding time stamps & typing indicators)
-        String longest = null;
-        for (AccessibilityNodeInfo node : all) {
-            CharSequence t = node.getText();
-            if (t != null && t.length() > 1) {
-                String s = t.toString().trim();
-                if (!s.matches("\\d{1,2}:\\d{2}") && !s.equalsIgnoreCase("typing…")) {
-                    if (longest == null || s.length() > longest.length()) longest = s;
-                }
-            }
-        }
-        return longest;
+    // 1) Standard WhatsApp message text elements
+    List<AccessibilityNodeInfo> msgs = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/message_text");
+    if (!msgs.isEmpty()) {
+        // Return the last one (newest messages are at the bottom)
+        CharSequence txt = msgs.get(msgs.size() - 1).getText();
+        if (txt != null && txt.length() > 0) return txt.toString().trim();
     }
+
+    // 2) Fallback: scan EVERY visible node, pick the one with the largest Y position
+    //    that also has some text (and is not a timestamp / typing indicator)
+    List<AccessibilityNodeInfo> all = new ArrayList<>();
+    collectAllNodes(root, all);
+
+    AccessibilityNodeInfo best = null;
+    int maxY = -1;
+    for (AccessibilityNodeInfo node : all) {
+        CharSequence t = node.getText();
+        if (t != null && t.length() > 1) {
+            String s = t.toString().trim();
+            // Skip obvious non‑message texts
+            if (s.matches("\\d{1,2}:\\d{2}") || s.equalsIgnoreCase("typing…"))
+                continue;
+            android.graphics.Rect rect = new android.graphics.Rect();
+            node.getBoundsInScreen(rect);
+            if (rect.bottom > maxY) {
+                maxY = rect.bottom;
+                best = node;
+            }
+        }
+    }
+    if (best != null) return best.getText().toString().trim();
+
+    // 3) Ultimate fallback: return the longest text on screen
+    String longest = null;
+    for (AccessibilityNodeInfo node : all) {
+        CharSequence t = node.getText();
+        if (t != null && t.length() > 1) {
+            String s = t.toString().trim();
+            if (longest == null || s.length() > longest.length()) longest = s;
+        }
+    }
+    return longest;
+}
+
+// Make sure these helper methods are present (they are in the previous full code)
+private void collectAllNodes(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
+    if (node == null) return;
+    out.add(node);
+    for (int i = 0; i < node.getChildCount(); i++) collectAllNodes(node.getChild(i), out);
+}
 
     public void openApp(String pkg) {
         try { startActivity(getPackageManager().getLaunchIntentForPackage(pkg)); } catch (Exception ignored) {}
